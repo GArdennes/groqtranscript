@@ -15,7 +15,7 @@
 
 ## Overview
 
-ScribePlus is an extension of [ScribeWizard](https://github.com/Bklieger/ScribeWizard). It is a streamlit app that speeds up the creation of structured lecture notes by iteratively structuring and generating notes from transcribed audio lectures using Groq's Whisper API. The app mixes between Llama3-8b, Llama3-70b, mixtral-8x7b and gemma-7b utilizing the models for generating the notes structure and creating the content.
+[ScribePlus](https://scribeplus.streamlit.app/) is an extension of [ScribeWizard](https://github.com/Bklieger/ScribeWizard). It is a streamlit app that speeds up the creation of structured lecture notes by iteratively structuring and generating notes from transcribed audio lectures using Groq's Whisper API. The app mixes between Llama3-8b, Llama3-70b, mixtral-8x7b and gemma-7b utilizing the models for generating the notes structure and creating the content.
 
 
 ### Features
