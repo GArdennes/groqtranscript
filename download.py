@@ -80,6 +80,13 @@ class MyLogger(object):
         print("[error]: ", msg)
 
 
+def create_secure_temp_dir():
+    """Create secure temporary directory."""
+    temp_dir = tempfile.mkdtemp(prefix="groq_", suffix="_audio")
+    os.chmod(temp_dir, 0o700)  # Secure permissions
+    return temp_dir
+
+
 def move_to_new_path(input_file):
     """
     Moves the input file to a new directory and returns the new file path.
@@ -94,7 +101,7 @@ def move_to_new_path(input_file):
         str: The new file path after moving the file.
     """
     # Define the new directory and file name
-    new_directory = "./downloads/audio/"
+    new_directory = create_secure_temp_dir()
     print(f"This is the basename: {os.path.basename(input_file)}")
     new_file_path = os.path.join(new_directory, os.path.basename(input_file))
 
@@ -286,19 +293,22 @@ def delete_download(path):
         print(f"An error occurred while trying to delete {path}: {str(e)}")
 
 
+def validate_audio_file(file):
+    """Validate uploaded audio file."""
+    if file.size > MAX_FILE_SIZE:
+        raise ValueError(FILE_TOO_LARGE_MESSAGE)
+
+    # Check file signature
+    file_header = file.read(16)
+    file.seek(0)
+
+    valid_signatures = [b'ID3', b'OggS', b'\xff\xfb', b'RIFF']
+    if not any(file_header.startswith(sig) for sig in valid_signatures):
+        raise ValueError("Invalid audio file format.")
+
+
 def validity_checker(url):
-    """
-    Checks if the input link is a valid YouTube link and returns a boolean.
-    
-    This function checks if the input URL is a valid YouTube link. 
-    It uses the youtube_dl to match the expected patterns.
-
-    Args:
-        url (str): The URL to be checked.
-
-    Returns:
-        bool: True if the URL is a valid YouTube link, False otherwise.    
-    """
+    """Checks if the input link is a valid YouTube link and returns a boolean."""
     extractors = youtube_dl.extractor.gen_extractors()
     for extractor in extractors:
         if extractor.suitable(url) and extractor.IE_NAME != 'generic':
