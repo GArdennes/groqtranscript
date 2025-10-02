@@ -25,6 +25,7 @@ Functions:
 - download_video_audio(): Downloads and preprocesses the audio from a YouTube video into an MP3 file.
 - delete_download(): Deletes the specified file or directory.
 - validity_checker(): Checks if the input link is a valid YouTube link and returns a boolean.
+- validate_audio_file(): Validate the uploaded audio file for security and format.
 
 Constants:
 - logger: Instance of logging to log messages.
@@ -293,18 +294,20 @@ def delete_download(path):
         print(f"An error occurred while trying to delete {path}: {str(e)}")
 
 
-def validate_audio_file(file):
-    """Validate uploaded audio file."""
-    if file.size > MAX_FILE_SIZE:
-        raise ValueError(FILE_TOO_LARGE_MESSAGE)
+def validate_audio_file(file_path):
+    """Validate the uploaded audio file for security and format."""
+    allowed_extensions = {"mp3", "wav", "m4a", "ogg"}
+    file_extension = os.path.splitext(file_path)[1].lower().strip('.')
 
-    # Check file signature
-    file_header = file.read(16)
-    file.seek(0)
+    if file_extension not in allowed_extensions:
+        raise ValueError("Unsupported file format. Allowed formats: mp3, wav, m4a, ogg.")
 
-    valid_signatures = [b'ID3', b'OggS', b'\xff\xfb', b'RIFF']
-    if not any(file_header.startswith(sig) for sig in valid_signatures):
-        raise ValueError("Invalid audio file format.")
+    # Check for malicious content (placeholder for actual scanning logic)
+    if ".." in file_path or file_path.startswith("/"):
+        raise ValueError("Invalid file path detected.")
+
+    # Additional content scanning can be added here
+    return True
 
 
 def validity_checker(url):

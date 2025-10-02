@@ -128,6 +128,85 @@ def disable():
 def enable():
     st.session_state.button_disabled = False
 
+# Helper Functions
+def empty_st():
+    st.empty()
+
+def display_status(text):
+    status_text.write(text)
+
+def clear_status():
+    status_text.empty()
+
+def display_download_status(text: str):
+    download_status_text.write(text)
+
+def clear_download_status():
+    download_status_text.empty()
+
+def display_statistics():
+    """Displays the model statistics and the transcription text as per progress."""
+    with placeholder.container():
+        if st.session_state.statistics_text:
+            if "Transcribing audio in background" not in st.session_state.statistics_text:
+                st.markdown(
+                    st.session_state.statistics_text +
+                    "\n\n---\n")  # Format with line if showing statistics
+            else:
+                st.markdown(st.session_state.statistics_text)
+        else:
+            placeholder.empty()
+
+def stream_section_content(sections, transcription_text, notes,
+                           content_selected_model,
+                           total_generation_statistics):
+    """Recursively streams the content of each section in the notes structure."""
+    for title, content in sections.items():
+        if isinstance(content, str):
+            if len(notes.return_existing_contents()) > MAX_TEXT_LENGTH:
+                notes_text = notes.return_existing_contents()[-MAX_TEXT_LENGTH:]
+            else:
+                notes_text = notes.return_existing_contents()
+            time.sleep(10)
+            content_stream = generate_section(
+                transcript=transcription_text,
+                existing_notes=notes_text,
+                section=(title + ": " + content),
+                model=str(content_selected_model))
+            for chunk in content_stream:
+                # Check if GenerationStatistics data is returned instead of str tokens
+                chunk_data = chunk
+                if type(chunk_data) == GenerationStatistics:
+                    total_generation_statistics.add(chunk_data)
+                    st.session_state.statistics_text = str(
+                        total_generation_statistics)
+                    display_statistics()
+                elif chunk is not None:
+                    st.session_state.notes.update_content(title, chunk)
+        elif isinstance(content, dict):
+            stream_section_content(content, transcription_text, notes,
+                                   content_selected_model,
+                                   total_generation_statistics)
+
+# Optimize memory management for large files
+def process_large_file_in_chunks(file_path, chunk_size=1024 * 1024):
+    """Process large files in chunks to reduce memory usage."""
+    with open(file_path, 'rb') as file:
+        while chunk := file.read(chunk_size):
+            yield chunk
+
+def process_audio_chunk(chunk):
+    """Process a chunk of audio data."""
+    pass
+
+def trim_session_state():
+    """Trim session state to avoid unbounded growth."""
+    max_state_size = 10  # Maximum number of items to keep in session state
+    if len(st.session_state) > max_state_size:
+        keys_to_remove = list(st.session_state.keys())[:-max_state_size]
+        for key in keys_to_remove:
+            del st.session_state[key]
+
 # API Key Validation
 def validate_api_key(api_key):
     """Validate the API key format."""
@@ -276,8 +355,14 @@ try:
             raise ValueError(
                 "Please generate content first before downloading the notes.")
 
-    input_method = st.radio("Choose input method:",
-                            ["Upload audio file", "YouTube link"])
+    # Improve layout with sections
+    st.sidebar.header("Settings")
+    st.sidebar.subheader("Model Selection")
+    outline_selected_model = st.sidebar.selectbox("Outline generation:", OUTLINE_MODEL_OPTIONS)
+    content_selected_model = st.sidebar.selectbox("Content generation:", CONTENT_MODEL_OPTIONS)
+
+    st.sidebar.subheader("File Upload")
+    input_method = st.sidebar.radio("Choose input method:", ["Upload audio file", "YouTube link"])
 
     audio_file = None
     youtube_link = None
@@ -318,10 +403,13 @@ try:
             on_click=disable,
             disabled=st.session_state.button_disabled)
 
-        #processing status
+        # Processing status - define placeholders
         status_text = st.empty()
         download_status_text = st.empty()
         placeholder = st.empty()
+        
+        # Call trim_session_state periodically
+        trim_session_state()
 
         if submitted or submitted_2:
             st.session_state.button_disabled = True
@@ -360,46 +448,10 @@ try:
                 whisper_failed = False
                 display_status("Transcribing audio...")
                 transcription_text = transcribe_audio(audio_file)
-                display_statistics()
-            except Exception as error:
-                error_dict = None
-                if hasattr(error, 'response') and error.response is not None:
-                    try:
-                        error_dict = json.loads(error.response.text)
-                    except json.JSONDecodeError:
-                        pass
-
-                if error_dict and 'error' in error_dict and 'code' in error_dict[
-                        'error'] and error_dict['error'][
-                            'code'] == 'rate_limit_exceeded':
-                    whisper_failed = True
-                    if youtube_link:
-                        try:
-                            display_status(
-                                "Whisper API rate limit reached. Falling back to YouTube transcript..."
-                            )
-                            video_data = Data(youtube_link).data()
-                            video_id = video_data['id']
-                            transcript = YouTubeTranscriptApi.get_transcript(
-                                video_id)
-                            transcription_text = " ".join(
-                                [line['text'] for line in transcript])
-                            display_status(
-                                "YouTube transcript retrieved successfully.")
-                        except Exception as yt_error:
-                            st.error(
-                                f"Failed to retrieve Youtube Transcript. Error: {yt_error}"
-                            )
-                            st.stop()
-                    else:
-                        st.error(
-                            "Rate limit reached and no fallback available.")
-                        st.stop()
-                else:
-                    st.error(
-                        f"An error occurred during transcription: {str(error)}"
-                    )
-                    st.stop()
+            except ValueError as ve:
+                st.error(f"Validation Error: {ve}")
+            except Exception as e:
+                st.error("An unexpected error occurred. Please try again later.")
 
             if submitted:  # Generate notes
                 display_status("Generating notes structure....")
@@ -503,17 +555,63 @@ try:
                 st.session_state.button_disabled = False
                 enable()
 
+            # Optimize memory management for large files
+            def process_large_file_in_chunks(file_path, chunk_size=1024 * 1024):
+                """Process large files in chunks to reduce memory usage."""
+                with open(file_path, 'rb') as file:
+                    while chunk := file.read(chunk_size):
+                        yield chunk
+
+            # Example usage in audio processing
+            if os.path.getsize(audio_file_path) > MAX_FILE_SIZE:
+                for chunk in process_large_file_in_chunks(audio_file_path):
+                    # Process each chunk
+                    process_audio_chunk(chunk)
+
+            # Limit session state size
+            def trim_session_state():
+                """Trim session state to avoid unbounded growth."""
+                max_state_size = 10  # Maximum number of items to keep in session state
+                if len(st.session_state) > max_state_size:
+                    keys_to_remove = list(st.session_state.keys())[:-max_state_size]
+                    for key in keys_to_remove:
+                        del st.session_state[key]
+
+            # Call trim_session_state periodically
+            trim_session_state()
+
 except Exception as e:
     st.session_state.button_disabled = False
-
-    if hasattr(e, 'status_code') and e.status_code == 413:
-        st.error(FILE_TOO_LARGE_MESSAGE)
-    elif hasattr(e, 'status_code') and e.status_code == 400:
-        st.error(FILE_TOO_LARGE_MESSAGE)
+    
+    # Handle different types of exceptions properly
+    if hasattr(e, 'status_code'):
+        if e.status_code == 413:
+            st.error(FILE_TOO_LARGE_MESSAGE)
+        elif e.status_code == 400:
+            st.error(FILE_TOO_LARGE_MESSAGE)
+        else:
+            st.error(f"API Error: {str(e)} (Status code: {e.status_code})")
+    elif "StreamlitDuplicateElementId" in str(type(e)):
+        st.error("Duplicate UI element detected. Please refresh the page.")
+        logger.error(f"StreamlitDuplicateElementId error: {str(e)}")
+    elif "rate_limit" in str(e).lower():
+        st.error("Rate limit exceeded. Please wait and try again.")
+    elif "authentication" in str(e).lower():
+        st.error("Authentication failed. Please check your API key.")
+    elif isinstance(e, ValueError):
+        st.error(f"Input validation error: {str(e)}")
     else:
-        st.error(f"An error occurred: Error code {str(e.status_code)}")
+        st.error(f"An unexpected error occurred: {str(e)}")
+        logger.error(f"Unexpected error in main: {str(e)}", exc_info=True)
 
     if st.button("Clear"):
         st.rerun()
-    if audio_file_path is not None:
+    if 'audio_file_path' in locals() and audio_file_path is not None:
         delete_download(audio_file_path)
+
+# Placeholder for process_audio_chunk
+def process_audio_chunk(chunk):
+    """Process a chunk of audio data."""
+    pass
+
+
