@@ -54,6 +54,7 @@ import tempfile
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+print(f'GROQ_API_KEY is {GROQ_API_KEY}')
 
 # Constants
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
@@ -212,7 +213,7 @@ def check_dependencies():
     """Verify all required dependencies are available."""
     checks = {
         'ffmpeg': lambda: subprocess.run(['ffmpeg', '-version'], capture_output=True).returncode == 0,
-        'groq_api': lambda: st.session_state.get('groq') is not None,
+        'groq_api': lambda: GROQ_API_KEY is not None,
         'temp_dir': lambda: os.access(tempfile.gettempdir(), os.W_OK)
     }
 
