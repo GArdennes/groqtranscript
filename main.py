@@ -24,6 +24,7 @@ Functions:
 - clear_download_status(): Clears the audio download progress from screen.
 - display_statistics(): Handles the model stastistics and the transcription text as per progress.
 - stream_section_content(): Streams the section content and updates existing file. 
+- check_dependencies(): Verify all required dependencies are available.
 
 Constants:
 - MAX_FILE_SIZE: The maximum file size for audio files (25 MB).
@@ -47,6 +48,8 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from dotenv import load_dotenv
 from download import download_video_audio, delete_download, validity_checker
 from notes import GenerationStatistics, NoteSection, generate_notes_structure, generate_section, create_markdown_file, create_pdf_file, transcribe_audio, generate_transcript_structure, merge_json_structures, create_chunks
+import subprocess
+import tempfile
 
 load_dotenv()
 
@@ -75,11 +78,10 @@ AUDIO_FILES = {
 
 # Model Options
 OUTLINE_MODEL_OPTIONS = [
-    "gemma2-9b-it", "llama3-8b-8192", "llama3-70b-8192", "gemma-7b-it"
+    "llama-3.1-8b-instant", "llama-3.3-70b-versatile", "meta-llama/llama-guard-4-12b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"
 ]
 CONTENT_MODEL_OPTIONS = [
-    "llama3-8b-8192", "gemma2-9b-it", "llama3-70b-8192", "llama-guard-3-8b",
-    "gemma-7b-it"
+    "llama-3.1-8b-instant", "llama-3.3-70b-versatile", "meta-llama/llama-guard-4-12b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"
 ]
 
 # Streamlit Setup
@@ -205,6 +207,40 @@ def stream_section_content(sections, transcription_text, notes,
                                    content_selected_model,
                                    total_generation_statistics)
 
+
+def check_dependencies():
+    """Verify all required dependencies are available."""
+    checks = {
+        'ffmpeg': lambda: subprocess.run(['ffmpeg', '-version'], capture_output=True).returncode == 0,
+        'groq_api': lambda: st.session_state.get('groq') is not None,
+        'temp_dir': lambda: os.access(tempfile.gettempdir(), os.W_OK)
+    }
+
+    for name, check in checks.items():
+        if not check():
+            st.error(f"Dependency check failed: {name}")
+            return False
+    return True
+
+
+# Call the dependency check at the start of the application
+if not check_dependencies():
+    st.stop()
+
+# API Key Validation
+def validate_api_key(api_key):
+    """Validate the API key format."""
+    if not api_key:
+        raise ValueError("GROQ_API_KEY environment variable is required.")
+    if not api_key.startswith("gsk_"):
+        raise ValueError("Invalid API key format. It should start with 'gsk_'.")
+
+# Validate the API key at the start of the application
+try:
+    validate_api_key(GROQ_API_KEY)
+except ValueError as e:
+    st.error(str(e))
+    st.stop()
 
 # Sidebar Content
 try:
