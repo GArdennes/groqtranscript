@@ -23,7 +23,7 @@ Functions:
 import json
 import streamlit as st
 from io import BytesIO
-from md2pdf.core import md2pdf
+import pypandoc
 #from langchain_text_splitters import RecursiveCharacterTextSplitter
 from semantic_text_splitter import TextSplitter
 
@@ -235,11 +235,16 @@ def create_markdown_file(content: str) -> BytesIO:
 
 def create_pdf_file(content: str):
     """
-    Create a PDF file from the provided content.
+    Create a PDF file from the provided content using Pandoc.
     """
     pdf_buffer = BytesIO()
-    md2pdf(pdf_buffer, md_content=content)
-    pdf_buffer.seek(0)
+    try:
+        pdf_content = pypandoc.convert_text(content, 'pdf', format='md')
+        pdf_buffer.write(pdf_content.encode('utf-8'))
+        pdf_buffer.seek(0)
+    except Exception as e:
+        print(f"Error during PDF conversion: {e}")
+        raise
     return pdf_buffer
 
 
