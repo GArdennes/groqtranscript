@@ -13,6 +13,7 @@ Modules:
 - download: For downloading and deleting audio files.
 - notes: For generating notes and transcript structure.
 - time: For working with time-related operations.
+- logging: For structured logging.
 
 Functions:
 - disable(): Disables certain features in the web interface.
@@ -50,11 +51,16 @@ from download import download_video_audio, delete_download, validity_checker
 from notes import GenerationStatistics, NoteSection, generate_notes_structure, generate_section, create_markdown_file, create_pdf_file, transcribe_audio, generate_transcript_structure, merge_json_structures, create_chunks
 import subprocess
 import tempfile
+import logging
 
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 print(f'GROQ_API_KEY is {GROQ_API_KEY}')
+
+# Configure structured logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("ScribePlus")
 
 # Constants
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
@@ -91,142 +97,36 @@ st.set_page_config(
     page_icon="🗒️",
 )
 
-# Session State Initialization
-if 'api_key' not in st.session_state:
-    st.session_state.api_key = GROQ_API_KEY
-if 'groq' not in st.session_state:
-    if GROQ_API_KEY:
-        st.session_state.groq = Groq()
-if 'button_disabled' not in st.session_state:
-    st.session_state.button_disabled = False
-if 'button_text' not in st.session_state:
-    st.session_state.button_text = "Generate Notes"
-if 'button_text_2' not in st.session_state:
-    st.session_state.button_text_2 = "Generate Transcript"
-if 'statistics_text' not in st.session_state:
-    st.session_state.statistics_text = ""
-if 'notes_title' not in st.session_state:
-    st.session_state.notes_title = "generate"
-if 'notes' not in st.session_state:
-    st.session_state.notes = None
-if 'transcript_notes' not in st.session_state:
-    st.session_state.transcript_notes = None
-if 'youtube_link' not in st.session_state:
-    st.session_state.youtube_link = ""
-if 'valid_youtube_link' not in st.session_state:
-    st.session_state.valid_youtube_link = None
+# Consolidate session state initialization
+if 'session_initialized' not in st.session_state:
+    st.session_state.update({
+        'api_key': GROQ_API_KEY,
+        'groq': Groq() if GROQ_API_KEY else None,
+        'button_disabled': False,
+        'button_text': "Generate Notes",
+        'button_text_2': "Generate Transcript",
+        'statistics_text': "",
+        'notes_title': "generate",
+        'notes': None,
+        'transcript_notes': None,
+        'youtube_link': "",
+        'valid_youtube_link': None,
+        'session_initialized': True
+    })
 
-# Main Page Content
-st.write("""
-# ScribePlus: Create structured notes from audio 🗒️⚡
-""")
+# Replace individual state updates with a single function
+def update_session_state(**kwargs):
+    st.session_state.update(kwargs)
 
+# Example usage:
+# update_session_state(button_disabled=True, notes_title="New Title")
 
-# Helper Functions
+# Define disable and enable functions for button state management
 def disable():
     st.session_state.button_disabled = True
 
-
 def enable():
     st.session_state.button_disabled = False
-
-
-def empty_st():
-    st.empty()
-
-
-def display_status(text):
-    status_text.write(text)
-
-
-def clear_status():
-    status_text.empty()
-
-
-def display_download_status(text: str):
-    download_status_text.write(text)
-
-
-def clear_download_status():
-    download_status_text.empty()
-
-
-def display_statistics():
-    """
-    Displays the model statistics and the transcription text as per progress.
-    """
-    with placeholder.container():
-        if st.session_state.statistics_text:
-            if "Transcribing audio in background" not in st.session_state.statistics_text:
-                st.markdown(
-                    st.session_state.statistics_text +
-                    "\n\n---\n")  # Format with line if showing statistics
-            else:
-                st.markdown(st.session_state.statistics_text)
-        else:
-            placeholder.empty()
-
-
-def stream_section_content(sections, transcription_text, notes,
-                           content_selected_model,
-                           total_generation_statistics):
-    """
-    Recursively streams the content of each section in the notes structure.
-
-    Args:
-        sections (dict): A dictionary where keys are section titles and values are strings (content) or nested dictionaries (subsections).
-        transcription_text (str): Transcription text.
-        notes (Notes): An instance of the Notes class, used to manage and update note contents.
-        content_selected_model (str): The selected model for generating content.
-        total_generation_statistics (GenerationStatistics): An instance of GenerationStatistics to accumulate statistics from the content generation process.
-    """
-    for title, content in sections.items():
-        if isinstance(content, str):
-            if len(notes.return_existing_contents()) > MAX_TEXT_LENGTH:
-                notes_text = notes.return_existing_contents(
-                )[-MAX_TEXT_LENGTH:]
-            else:
-                notes_text = notes.return_existing_contents()
-            time.sleep(10)
-            content_stream = generate_section(
-                transcript=transcription_text,
-                existing_notes=notes_text,
-                section=(title + ": " + content),
-                model=str(content_selected_model))
-            for chunk in content_stream:
-                # Check if GenerationStatistics data is returned instead of str tokens
-                chunk_data = chunk
-                if type(chunk_data) == GenerationStatistics:
-                    total_generation_statistics.add(chunk_data)
-                    st.session_state.statistics_text = str(
-                        total_generation_statistics)
-                    display_statistics()
-                elif chunk is not None:
-                    st.session_state.notes.update_content(title, chunk)
-        elif isinstance(content, dict):
-            stream_section_content(content, transcription_text, notes,
-                                   content_selected_model,
-                                   total_generation_statistics)
-
-
-def check_dependencies():
-    """Verify all required dependencies are available."""
-    checks = {
-        'ffmpeg': lambda: subprocess.run(['ffmpeg', '-version'], capture_output=True).returncode == 0,
-        'groq_api': lambda: GROQ_API_KEY is not None,
-        'temp_dir': lambda: os.access(tempfile.gettempdir(), os.W_OK)
-    }
-
-    for name, check in checks.items():
-        if not check():
-            st.error(f"Dependency check failed: {name}")
-            return False
-    return True
-
-
-# Call the dependency check at the start of the application
-if not check_dependencies():
-    st.stop()
 
 # API Key Validation
 def validate_api_key(api_key):
@@ -243,9 +143,63 @@ except ValueError as e:
     st.error(str(e))
     st.stop()
 
+# Validate model capabilities
+VALID_MODELS = {
+    "llama-3.1-8b-instant": {"max_tokens": 8192},
+    "llama-3.3-70b-versatile": {"max_tokens": 16384},
+    "meta-llama/llama-guard-4-12b": {"max_tokens": 4096},
+    "openai/gpt-oss-120b": {"max_tokens": 32768},
+    "openai/gpt-oss-20b": {"max_tokens": 2048}
+}
+
+def validate_model_selection(model_name):
+    if model_name not in VALID_MODELS:
+        raise ValueError(f"Invalid model selected: {model_name}")
+
 # Sidebar Content
 try:
     with st.sidebar:
+        st.write(
+            f"# 🗒️ ScribePlus \n## Generate notes from audio in seconds using Groq"
+        )
+        st.write(f"---")
+
+        st.write(f"# Sample Audio Files")
+
+        for audio_name, audio_info in AUDIO_FILES.items():
+            st.write(f"### {audio_name}")
+            with open(audio_info['file_path'], 'rb') as audio_file:
+                audio_bytes = audio_file.read()
+            st.download_button(label=f"Download audio",
+                               data=audio_bytes,
+                               file_name=audio_info['file_path'],
+                               mime='audio/m4a')
+            st.markdown(f"[Credit Youtube Link]({audio_info['youtube_link']})")
+            st.write(f"\n\n")
+
+        st.write(f"---")
+
+        st.write(
+            "# Customization Settings\n🧪 These settings are experimental.\n")
+        st.write(
+            f"By default, ScribePlus uses gemma2 for generating the notes outline and Llama3 for the content. This balances quality with speed and rate limit usage. You can customize these selections below."
+        )
+        outline_selected_model = st.selectbox("Outline generation:",
+                                              OUTLINE_MODEL_OPTIONS)
+        content_selected_model = st.selectbox("Content generation:",
+                                              CONTENT_MODEL_OPTIONS)
+
+        # Add note about rate limits
+        st.info(
+            "Important: Different models have different token and rate limits which may cause runtime errors."
+        )
+
+    # Validate model selection after definition
+    try:
+        validate_model_selection(outline_selected_model)
+        validate_model_selection(content_selected_model)
+    except ValueError as e:
+        st.error(str(e))
         st.write(
             f"# 🗒️ ScribePlus \n## Generate notes from audio in seconds using Groq"
         )
